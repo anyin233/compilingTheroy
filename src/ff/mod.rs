@@ -1,4 +1,5 @@
 use crate::language::Language;
+use crate::history::History;
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::ops::Index;
@@ -10,6 +11,7 @@ pub struct FF {
     follow: HashMap<String, Vec<String>>,
     lg: Language,
     table: Table,
+    history: History,
 }
 
 impl FF {
@@ -24,12 +26,13 @@ impl FF {
             follow: follow,
             lg: lg.clone(),
             table: Table::new(lg.twords.clone(), lg.ntwords.clone()),
+            history: History::new()
         };
         ff.build_table();
         ff
     }
 
-    pub fn analyze(self, sentence: String) -> String {
+    pub fn analyze(&mut self, sentence: String) -> String {
         let mut words: Vec<String> = Vec::new();
         let mut temp = String::new();
         let status;
@@ -73,6 +76,7 @@ impl FF {
                 let data = self.table[&(a, b)].clone();
                 if data.0 == focus.clone() {
                     stack.pop();
+                    self.history.log(&word, &data);
                     for w in data.1.iter().rev() {
                         if *w != "nil".to_owned() {
                             stack.push(w.clone());
@@ -82,11 +86,10 @@ impl FF {
                     status = format!("Error when looking {}", focus);
                     break;
                 }
-                //TODO:分析非终结符(此处需要提前建表)
             }
             *focus = stack.last().unwrap().clone();
         }
-
+        println!("{}", self.history);
         status
     }
 

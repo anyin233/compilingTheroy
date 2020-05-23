@@ -32,6 +32,10 @@ impl FF {
         ff
     }
 
+    pub fn get_history(&self) -> String{
+        format!("{}", self.history)
+    }
+
     pub fn analyze(&mut self, sentence: String) -> String {
         let mut words: Vec<String> = Vec::new();
         let mut temp = String::new();
@@ -89,7 +93,7 @@ impl FF {
             }
             *focus = stack.last().unwrap().clone();
         }
-        println!("{}", self.history);
+        //println!("{}", self.history);
         status
     }
 

@@ -7,7 +7,7 @@ use std::ops::Index;
 #[derive(Debug, Clone)]
 pub struct FF {
     source_language: HashMap<String, Vec<Vec<String>>>,
-    first: HashMap<String, Vec<String>>,
+    pub first: HashMap<String, Vec<String>>,
     follow: HashMap<String, Vec<String>>,
     lg: Language,
     table: Table,
@@ -55,10 +55,13 @@ impl FF {
         let mut f = stack.last().unwrap().clone();
         let focus = &mut f;
         let mut word = match word_iter.next() {
-            Some(v) => v,
+            Some(v) => {
+                self.history.push(v);
+                v
+            },
             None => &eof,
         };
-
+        
         loop {
             if focus == &eof && word == &eof {
                 status = "Succeed".to_owned();
@@ -67,7 +70,10 @@ impl FF {
                 if focus == word {
                     stack.pop();
                     word = match word_iter.next() {
-                        Some(v) => v,
+                        Some(v) => {
+                            self.history.push(v);
+                            v
+                        },
                         None => &eof,
                     }
                 } else {
@@ -80,7 +86,7 @@ impl FF {
                 let data = self.table[&(a, b)].clone();
                 if data.0 == focus.clone() {
                     stack.pop();
-                    self.history.log(&word, &data);
+                    self.history.log( &data);
                     for w in data.1.iter().rev() {
                         if *w != "nil".to_owned() {
                             stack.push(w.clone());

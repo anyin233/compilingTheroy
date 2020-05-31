@@ -5,6 +5,7 @@ pub struct History {
     step: usize,
     rule: Vec<String>,
     action: Vec<String>,
+    sentence: String,
 }
 
 impl History {
@@ -13,11 +14,16 @@ impl History {
             step: 0,
             rule: Vec::new(),
             action: Vec::new(),
+            sentence: String::new()
         }
     }
 
-    pub fn log(&mut self, word: &String, rule: &(String, Vec<String>)) {
-        let mut w = word.clone();
+    pub fn push(&mut self, word: &String){
+        self.sentence.push_str(word.clone().as_str());
+    }
+
+    pub fn log(&mut self, rule: &(String, Vec<String>)) {
+        let mut w = self.sentence.clone();
         w = "Anazying ".to_owned() + w.as_str();
         self.action.push(w);
         let r = rule.clone();

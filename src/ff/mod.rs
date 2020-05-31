@@ -15,7 +15,7 @@ pub struct FF {
 }
 
 impl FF {
-    pub fn new(lg: Language) -> Self {
+    pub fn new(lg: &Language) -> Self {
         let mut first: HashMap<String, Vec<String>> = HashMap::new();
         let mut follow: HashMap<String, Vec<String>> = HashMap::new();
         Self::gen_first(&mut first, &lg);
@@ -141,6 +141,9 @@ impl FF {
                     word.push(v[0].clone());
                 }
             }
+            if entity.0 == lg.first_word{
+                word.push("#".to_owned());
+            }
             if !first.contains_key(&entity.0) {
                 first.insert(entity.0, word);
             } else {
@@ -163,7 +166,10 @@ impl FF {
                 let right = lang.get(&word).unwrap();
                 for r in right {
                     if lg.ntwords.contains(&r[0]) {
-                        for w in first.get(&r[0]).unwrap().clone() {
+                        for w in match first.get(&r[0]){
+                            Some(v) => v.clone(),
+                            None => vec![r[0].clone()]
+                        }{
                             if !word_first.contains(&w) {
                                 word_first.push(w);
                                 changed = true;

@@ -18,8 +18,8 @@ use lr::AnalyzeTable;
 #[no_mangle]
 extern fn test() {
     let mut lg = Language::start();
-    lg.new("language.txt", "NT.txt", "T.txt");
-    let mut ff = FF::new(lg);
+    lg.new("language.txt", "NT.txt", "T.txt", false);
+    let mut ff = FF::new(&lg);
     println!("{}", ff);
     println!("{}", ff.analyze("i+i*(i+i)#".to_owned()));
 }
@@ -42,8 +42,8 @@ extern fn load_setting(conf_path: *const c_char, t_path: *const c_char, nt_path:
     let nt = convert_c_char(nt_path);
 
     let mut lg = Language::start();
-    lg.new(conf.as_str(), t.as_str(), nt.as_str());
-    let ff = FF::new(lg);
+    lg.new(conf.as_str(), t.as_str(), nt.as_str(), false);
+    let ff = FF::new(&lg);
     Box::into_raw(Box::new(ff))
 }//创建FF1解释器
 
@@ -54,8 +54,8 @@ extern fn load_from_string(conf: *const c_char, t: *const c_char, nt: *const c_c
     let nt = convert_c_char(nt);
 
     let mut lg = Language::start();
-    lg.new_from_string(conf, nt, t);
-    let ff = FF::new(lg);
+    lg.new_from_string(conf, nt, t, false);
+    let ff = FF::new(&lg);
     Box::into_raw(Box::new(ff))
 }
 
@@ -113,7 +113,7 @@ extern fn load_setting_lr(conf_path: *const c_char, t_path: *const c_char, nt_pa
     let nt = convert_c_char(nt_path);
 
     let mut lg = Language::start();
-    lg.new(conf.as_str(), t.as_str(), nt.as_str());
+    lg.new(conf.as_str(), t.as_str(), nt.as_str(), true);
     let ff = AnalyzeTable::new(&lg);
     Box::into_raw(Box::new(ff))
 }//创建FF1解释器
@@ -125,7 +125,7 @@ extern fn load_from_string_lr(conf: *const c_char, t: *const c_char, nt: *const 
     let nt = convert_c_char(nt);
 
     let mut lg = Language::start();
-    lg.new_from_string(conf, nt, t);
+    lg.new_from_string(conf, nt, t, true);
     let lr = AnalyzeTable::new(&lg);
     Box::into_raw(Box::new(lr))
 }
@@ -213,4 +213,31 @@ fn lr_tester(){
     let h = convert_c_char(his);
     println!("{}", h);
     assert!(st.contains("Succeed"))
+}
+
+#[test]
+fn lr(){
+    let conf_path = "language.txt";
+    let t_path = "T.txt";
+    let nt_path = "NT.txt";
+    let mut lang = Language::start();
+    lang.new(conf_path, t_path, nt_path, true);
+    let lr = AnalyzeTable::new(&lang);
+    println!("{}", lr);
+}
+
+#[test]
+fn test_left_re(){
+    let conf_path = "language.txt";
+    let t_path = "T.txt";
+    let nt_path = "NT.txt";
+    let mut lang = Language::start();
+    lang.new(conf_path, t_path, nt_path, false);
+    print!("{}", lang);
+    let mut ll = FF::new(&lang);
+    println!("{}\n{}",ll.analyze("i*i#".to_owned()), ll.get_history());
+    let mut lr = AnalyzeTable::new(&lang);
+    println!("\n{}", lr);
+    println!("{}", lr.analyze("i*i".to_owned()));
+    let a = 0;
 }

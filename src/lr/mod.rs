@@ -22,7 +22,7 @@ impl LR {
         lang.first_word = new_first.clone(); //对文法进行扩增
         lang.ntwords.push(new_first.clone());
         lang.words.push(new_first);
-        let ll = FF::new(lang.clone()); //从扩增文法中计算出First和Follow(只需要First)
+        let ll = FF::new(&lang); //从扩增文法中计算出First和Follow(只需要First)
         let mut lr = LR {
             ll: ll.clone(),
             lang: lang,
@@ -30,24 +30,39 @@ impl LR {
             closeure: Vec::new(),
             index: Vec::new(),
         };
-        lr.gen_genlist(); //生成所有的LR0式的生成式(前瞻符号为Option::None)
+        lr.gen_genlist(); //生成所有的LR0式的生成式
         lr.gen_clousre(); //建立所有的闭包
         lr
     }
 
     fn gen_genlist(&mut self) {
-        for entity in self.lang.lg.clone() {
+        for entity in self.lang.lg.clone() {//从原语言配置中读取所有的产生式
             for right in entity.1.clone() {
                 let gen = (entity.clone().0.clone(), right.clone());
-                for p in 0..gen.1.len() + 1 {
-                    let g = Gen::new(&gen, None, p);
-                    self.gen_list.push((entity.clone().0, p, g.clone()));
-                    self.index.push((entity.0.clone(), p));
+                if !gen.1.contains(&"nil".to_owned()){
+                    for p in 0..gen.1.len() + 1 {
+                        let g = Gen::new(&gen, None, p);
+                        self.gen_list.push((entity.clone().0, p, g.clone()));
+                        self.index.push((entity.0.clone(), p));
+                        for word in self.lang.words.clone() {
+                            if word != "nil".to_owned() && gen.0 != self.lang.first_word {
+                                let g = Gen::new(&gen, Some(word), p);
+                                self.gen_list.push((entity.clone().0, p, g.clone()));
+                                self.index.push((entity.0.clone(), p));
+                            }
+                        }
+                    }//非空串的时候，原样放入
+                }else{
+                    let mut gen = gen.clone();
+                    gen.1.clear();
+                    let g = Gen::new(&gen, None, 0);
+                    self.index.push((entity.clone().0, 0));
+                    self.gen_list.push((entity.clone().0, 0, g.clone()));
                     for word in self.lang.words.clone() {
                         if word != "nil".to_owned() && gen.0 != self.lang.first_word {
-                            let g = Gen::new(&gen, Some(word), p);
-                            self.gen_list.push((entity.clone().0, p, g.clone()));
-                            self.index.push((entity.0.clone(), p));
+                            let g = Gen::new(&gen, Some(word), 0);
+                            self.gen_list.push((entity.clone().0, 0, g.clone()));
+                            self.index.push((entity.0.clone(), 0));
                         }
                     }
                 }
@@ -164,7 +179,12 @@ impl LR {
 
     fn get_first(&self, word: String) -> Vec<String> {
         if self.lang.twords.contains(&word) || word == "#".to_owned() {
-            vec![word.clone()]
+            if word == "nil".to_owned(){
+                vec!["#".to_owned()]
+            }else{
+                vec![word.clone()]
+            }
+            
         } else if self.lang.ntwords.contains(&word) {
             self.ll.first.get(&word).unwrap().clone()
         } else {
@@ -175,11 +195,14 @@ impl LR {
 
 impl Display for LR {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
+        write!(f, "{}\n", self.lang)?;
+        write!(f, "{}\n", self.ll)?;
         for i in 0..self.closeure.len() {
             write!(f, "closeure{}:\n", i)?;
             for g in self.closeure[i].clone() {
                 write!(f, "{}\n", g)?;
             }
+            write!(f, "\n")?;
         }
         write!(f, "")
     }
@@ -275,7 +298,6 @@ impl AnalyzeTable {
             sen.push(temp.clone());
             drop(temp);
         } //将输入语句拆分为单词
-        //sen.reverse();
         sen.push("#".to_owned());//完成对输入串的预处理
 
         let first_index = (self.lr.lang.first_word.clone(), 0);
@@ -294,8 +316,6 @@ impl AnalyzeTable {
         }
         lazy_static! {
             static ref REG: Regex = Regex::new(r"('|\w)+-(\d)").unwrap();
-            static ref NUM: Regex = Regex::new(r"\d+").unwrap();
-            static ref WORD: Regex = Regex::new(r"('|[A-Z])+").unwrap();
         }
         let num: Regex = Regex::new(r"([0-9])+").unwrap();
         let gen_: Regex = Regex::new(r"('|[A-Z])+").unwrap();
@@ -343,7 +363,10 @@ impl AnalyzeTable {
                     let curr_status = status_stack[status_stack.len()-1];
                     let next_status = match self.goto.get(&(curr_status, genp.clone())) {
                         Some(v) => v,
-                        None => panic!("Error when looking {}", genp),
+                        None => {
+                            println!("{}", self.history);
+                            panic!("Error when looking {}", genp)
+                        },
                     };
                     status_stack.push(next_status.clone()); //将规约得到的状态放入栈中
                     word_stack.push(genp);
@@ -485,28 +508,41 @@ impl GO {
         let mut go = Self { go: HashMap::new() };
         let mut used = Vec::new();
         let mut way: HashMap<usize, Vec<usize>> = HashMap::new();
-        for i in 0..lr.closeure.len() {
-            let c = lr.closeure[i].clone();
-            for g in c {
-                let mut gen = g.clone();
-                if gen.move_to_next() {
-                    for s in 0..lr.closeure.len() {
-                        if lr.closeure[s].contains(&gen) {
-                            //go.go.insert((i, word.clone()), s);
-                            used.push(i);
-                            used.push(s); //找到goto的方向，填入goto表(其中gen.get_current_place()可以获取移动前待识别的字符)
-                            match way.get_mut(&i) {
-                                Some(v) => v.push(s),
-                                None => match way.insert(i, vec![s]) {
-                                    Some(_) => {}
-                                    None => {}
-                                },
+        let mut changed = true;
+        while changed {
+            changed = false;
+            for i in 0..lr.closeure.len() {
+                let c = lr.closeure[i].clone();
+                for g in c {
+                    let mut gen = g.clone();
+                    if gen.move_to_next() {
+                        for s in 0..lr.closeure.len() {
+                            if lr.closeure[s].contains(&gen) {
+                                if !used.contains(&i){
+                                    used.push(i);
+                                    changed = true;
+                                }
+                                if !used.contains(&s){
+                                    used.push(s);
+                                    changed = true;
+                                } //找到goto的方向，填入goto表(其中gen.get_current_place()可以获取移动前待识别的字符)
+                                match way.get_mut(&i) {
+                                    Some(v) => {
+                                        if !v.contains(&s){
+                                            v.push(s);
+                                            changed = true;
+                                        }
+                                    },
+                                    None => match way.insert(i, vec![s]) {
+                                        _ => changed = true
+                                    },
+                                }
+                                continue;
                             }
-                            continue;
                         }
+                    } else {
+                        continue;
                     }
-                } else {
-                    continue;
                 }
             }
         }
@@ -515,13 +551,7 @@ impl GO {
             if !used.contains(&i) {
                 not_have.push(i);
             }
-        }
-        not_have.sort();
-        let mut f = 0;
-        for i in not_have {
-            lr.closeure.remove(i - f);
-            f += 1;
-        }
+        }//将未使用的闭包编号放入
 
         let first = lr.lang.first_word.clone();
         let mut index = lr.index.len() + 1;
@@ -536,7 +566,7 @@ impl GO {
                 index = c;
                 break;
             }
-        }
+        }//获得起始闭包的编号
 
         let mut fact = vec![index];
         let mut changed = true;
@@ -555,18 +585,19 @@ impl GO {
                 }
             }
         }
-        let mut remove = Vec::new();
         for i in 0..lr.closeure.len() {
             if !fact.contains(&i) {
-                remove.push(i);
+                if !not_have.contains(&i){
+                    not_have.push(i);//将不可及的闭包放入待删除列表
+                }
             }
         }
-        remove.sort();
-        f = 0;
-        for i in remove {
-            lr.closeure.remove(i - f);
-            f += 1;
-        }
+        not_have.sort();
+        not_have.reverse();
+        for i in not_have {
+            lr.closeure.remove(i);
+        }//删除所有不可及和未使用的闭包
+
 
         let mut should_be_append: Vec<(usize, usize)> = Vec::new();
         let mut changed = true;
@@ -672,16 +703,16 @@ impl History {
         self.len += 1;
         let mut ws = String::new();
         for w in word_stack{
-            ws = format!("{}{}", ws, w);
+            ws = format!("{} {}", ws, w);
         }
         let mut ss = String::new();
         for w in status_stack{
-            ss = format!("{}{}", ss, w);
+            ss = format!("{} {}", ss, w);
         }
         self.step.push(format!("{}\t{}", ws, ss));
         let mut i = String::new();
         for w in input{
-            i = format!("{}{}", i, w);
+            i = format!("{} {}", i, w);
         }
         self.input.push(i);
     }

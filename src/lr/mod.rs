@@ -8,14 +8,17 @@ use std::fmt::Display;
 pub struct LR {
     pub ll: FF,                          //LL1语法分析器(提供First集)
     lang: Language,                      //已解析的语法
-    gen_list: Vec<(String, usize, Gen)>, //改写为LR1语法元组的生成式(左式，点位置，产生式)
-    closeure: Vec<Vec<Gen>>,             //闭包
-    index: Vec<(String, usize)>,
+    cc:Vec<Vec<Gen>>,
+    transation: HashMap<(usize, String), usize>,
+    action: HashMap<(usize, String), String>,
+    goto: HashMap<(usize, String), usize>,
+    history: History
 }
 
 impl LR {
     pub fn new(lang: &Language) -> Self {
         let mut lang = lang.clone();
+        
         let first = lang.first_word.clone();
         let new_first = "\'".to_owned() + first.clone().as_str(); //假设开头的非终结符是S，则会放入'S作为新的开头
         lang.lg.insert(new_first.clone(), vec![vec![first]]);
@@ -26,155 +29,15 @@ impl LR {
         let mut lr = LR {
             ll: ll.clone(),
             lang: lang,
-            gen_list: Vec::new(),
-            closeure: Vec::new(),
-            index: Vec::new(),
+            cc: Vec::new(),
+            transation: HashMap::new(),
+            action: HashMap::new(),
+            goto: HashMap::new(),
+            history: History::new()
         };
-        lr.gen_genlist(); //生成所有的LR0式的生成式
-        lr.gen_clousre(); //建立所有的闭包
+        lr.cc();
+        lr.fill_table();
         lr
-    }
-
-    fn gen_genlist(&mut self) {
-        for entity in self.lang.lg.clone() {//从原语言配置中读取所有的产生式
-            for right in entity.1.clone() {
-                let gen = (entity.clone().0.clone(), right.clone());
-                if !gen.1.contains(&"nil".to_owned()){
-                    for p in 0..gen.1.len() + 1 {
-                        let g = Gen::new(&gen, None, p);
-                        self.gen_list.push((entity.clone().0, p, g.clone()));
-                        self.index.push((entity.0.clone(), p));
-                        for word in self.lang.words.clone() {
-                            if word != "nil".to_owned() && gen.0 != self.lang.first_word {
-                                let g = Gen::new(&gen, Some(word), p);
-                                self.gen_list.push((entity.clone().0, p, g.clone()));
-                                self.index.push((entity.0.clone(), p));
-                            }
-                        }
-                    }//非空串的时候，原样放入
-                }else{
-                    let mut gen = gen.clone();
-                    gen.1.clear();
-                    let g = Gen::new(&gen, None, 0);
-                    self.index.push((entity.clone().0, 0));
-                    self.gen_list.push((entity.clone().0, 0, g.clone()));
-                    for word in self.lang.words.clone() {
-                        if word != "nil".to_owned() && gen.0 != self.lang.first_word {
-                            let g = Gen::new(&gen, Some(word), 0);
-                            self.gen_list.push((entity.clone().0, 0, g.clone()));
-                            self.index.push((entity.0.clone(), 0));
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    fn gen_clousre(&mut self) {
-        for g in self.gen_list.clone() {
-            let mut closure: Vec<Gen> = Vec::new(); //单个闭包
-            let gen = g.2.clone();
-            closure.push(gen.clone()); //将第一个先放入闭包
-            let curr = gen.get_current_place(); //获得当前栈顶的符号，判断是否需要进一步扩展
-            if self.lang.ntwords.contains(&curr) {
-                //如果是非终结符(开始扩展)
-                //将所有(curr, 0, gen)取出，并添加到闭包中
-                let first;
-                if gen.get_next_place() == "#".to_owned() {
-                    first = self.get_first(gen.ahead.clone());
-                } else {
-                    first = self.get_first(gen.get_next_place());
-                } //获取first集(如果生成式到达了末尾，则使用ahead来生成first集)
-
-                let mut index = Vec::new();
-                for i in 0..self.index.clone().len() {
-                    if self.index[i] == (curr.clone(), 0) && !index.contains(&i) {
-                        index.push(i);
-                    }
-                } //获得所有满足条件的index
-                for i in index {
-                    let g = self.gen_list[i].clone().2;
-                    for f in first.clone() {
-                        //使用下一个位置的first集来作为前瞻符号
-                        let mut g_t = g.clone();
-                        g_t.ahead = f; //将将要放入闭包的生成式的ahead更新为beta a的first集中的某一位
-                        if !closure.contains(&g_t) && g_t.ahead != "nil".to_owned() {
-                            closure.push(g_t);
-                        } //将所有可能的全部放入clousure
-                    }
-                }
-            }
-            if !self.closeure.contains(&closure) {
-                self.closeure.push(closure);
-            } //将完成了第一次扩张的闭包放入闭包列表中
-        }
-
-        //进行闭包的完善
-        let mut changed = true;
-        while changed {
-            changed = false;
-            let s = self.clone();
-            for c in &mut self.closeure {
-                for g in c.clone() {
-                    let curr = g.clone().get_current_place();
-                    if self.lang.ntwords.contains(&curr) {
-                        //如果是非终结符(开始扩展)
-                        //将所有(curr, 0, gen)取出，并添加到闭包中
-                        let first;
-                        if g.get_next_place() == "#".to_owned() {
-                            first = s.get_first(g.ahead.clone());
-                        } else {
-                            first = s.get_first(g.get_next_place());
-                        } //获取first集(如果生成式到达了末尾，则使用ahead来生成first集)
-
-                        let mut index = Vec::new();
-                        for i in 0..self.index.clone().len() {
-                            if self.index[i] == (curr.clone(), 0) && !index.contains(&i) {
-                                index.push(i);
-                            }
-                        } //获得所有满足条件的index
-                        for i in index {
-                            let g = self.gen_list[i].clone().2;
-                            for f in first.clone() {
-                                //使用下一个位置的first集来作为前瞻符号
-                                let mut g_t = g.clone();
-                                g_t.ahead = f; //将将要放入闭包的生成式的ahead更新为beta a的first集中的某一位
-                                if !c.contains(&g_t) && g_t.ahead != "nil".to_owned() {
-                                    c.push(g_t);
-                                    changed = true;
-                                } //将所有可能的全部放入clousure
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        let first = &self.lang.first_word;
-        let mut index = self.index.len() + 1;
-        for i in 0..self.index.len() {
-            if self.index[i] == (first.clone(), 0) {
-                index = i;
-            }
-        }
-        let first_gen = self.gen_list[index].clone();
-        let mut tc = Vec::new();
-        for c in 0..self.closeure.len() {
-            if self.closeure[c].contains(&first_gen.2) {
-                let mut cc = self.closeure[c].clone();
-                cc.remove(0);
-                tc = cc.clone();
-                break;
-            }
-        }
-        if tc.len() > 0 {
-            let len = self.closeure.len();
-            for i in 0..len {
-                if self.closeure[i] == tc {
-                    self.closeure.remove(i);
-                    break;
-                }
-            }
-        }
     }
 
     fn get_first(&self, word: String) -> Vec<String> {
@@ -191,93 +54,144 @@ impl LR {
             panic!("Error when get first collection")
         }
     }
-}
 
-impl Display for LR {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
-        write!(f, "{}\n", self.lang)?;
-        write!(f, "{}\n", self.ll)?;
-        for i in 0..self.closeure.len() {
-            write!(f, "closeure{}:\n", i)?;
-            for g in self.closeure[i].clone() {
-                write!(f, "{}\n", g)?;
-            }
-            write!(f, "\n")?;
-        }
-        write!(f, "")
+    pub fn get_history(&self) -> String{
+        format!("{}", self.history)
     }
-}
 
-pub struct AnalyzeTable {
-    action: HashMap<(usize, String), usize>,
-    goto: HashMap<(usize, String), usize>,
-    reg: HashMap<(usize, String), String>,
-    lr: LR,
-    history: History
-}
-
-impl AnalyzeTable {
-    pub fn new(lang: &Language) -> Self {
-        let mut lr = LR::new(lang);
-        let go = GO::new(&mut lr);
-        let mut action: HashMap<(usize, String), usize> = HashMap::new();
-        let mut goto: HashMap<(usize, String), usize> = HashMap::new();
-        let mut reg: HashMap<(usize, String), String> = HashMap::new();
-        let mut end = 0;
-        for i in 0..lr.index.len() {
-            if lr.index[i] == (lr.lang.first_word.clone(), 1) {
-                end = i; //获得接受状态对应的序号
-            }
-        }
-        let end_gen = lr.gen_list[end].clone();
-        for i in 0..lr.closeure.len() {
-            if lr.closeure[i].contains(&end_gen.2) {
-                end = i;
-            }
-        }
-        for entity in go.go {
-            if lr.lang.twords.contains(&(entity.0).1) {
-                if entity.1 == end {
-                    action.insert((entity.1, "#".to_owned()), lr.closeure.len());
-                }
-                action.insert(entity.0, entity.1);
-            } else if lr.lang.ntwords.contains(&(entity.0).1) {
-                goto.insert(entity.0, entity.1);
-            }
-        }
-        for i in 0..lr.closeure.len() {
-            let c = &lr.closeure[i];
-            for g in c {
-                if g.p == g.len {
-                    let gen = g.gen.clone();
-                    for sen in &lr.lang.lg {
-                        if sen.0 == &gen.0 {
-                            for s in 0..sen.1.len() {
-                                if sen.1[s] == gen.1 {
-                                    if sen.0 != &lr.lang.first_word {
-                                        reg.insert(
-                                            (i, g.ahead.clone()),
-                                            format!("{}-{}", sen.0, s),
-                                        );
-                                    } else {
-                                        reg.insert((i, g.ahead.clone()), "acc".to_owned());
-                                    }
+    fn closure(&self, s:&mut Vec<Gen>){
+        let mut changed = true;
+        while changed {
+            changed = false;
+            for g in s.clone(){
+                let word = g.get_current_place();
+                for p in self.lang.lg.clone(){
+                    let first;
+                    if g.get_next_place() == "#".to_owned() {
+                        first = self.get_first(g.ahead.clone());
+                    } else {
+                        first = self.get_first(g.get_next_place());
+                    } //获取first集(如果生成式到达了末尾，则使用ahead来生成first集)
+                    for w in first{
+                        if p.0 == word{
+                            for r in &p.1{
+                                if w == "nil".to_owned(){
+                                    continue;
+                                }
+                                let gen = Gen::new(&(word.clone(), r.clone()), Some(w.clone()), 0);
+                                if !s.contains(&gen){
+                                    s.push(gen);
+                                    changed = true;
                                 }
                             }
-                        } else {
-                            continue;
                         }
                     }
                 }
             }
         }
+    }
 
-        Self {
-            action,
-            goto,
-            reg,
-            lr,
-            history: History::new()
+    fn goto(&self, s: &Vec<Gen>, x:&String) -> Vec<Gen>{
+        let mut moved = Vec::new();
+        for g in s{
+            let curr = g.get_current_place();
+            if curr == *x{
+                let mut gen = g.clone();
+                gen.move_to_next();
+                if !moved.contains(&gen){
+                    moved.push(gen);
+                }
+            }
+        }
+        self.closure(&mut moved);
+        moved
+    }
+
+    fn cc(&mut self){
+        let first_word = self.lang.first_word.clone();
+        let mut cc0 = Vec::new();
+        let pro = self.lang.lg.get(&first_word).unwrap().clone();
+        let pro = pro[0].clone();
+        let gen = Gen::new(&(first_word, pro), None, 0);
+        cc0.push(gen);
+        self.closure(&mut cc0);
+        self.cc.push(cc0);
+        let mut marked = vec![false];
+        let mut changed = true;
+        while changed{
+            changed = false;
+            for i in 0..marked.len(){
+                if !marked[i]{
+                    marked[i] = !marked[i];
+                    let c = self.cc[i].clone();
+                    
+                    for g in c.clone(){
+                        let mut temp= Vec::new();
+                        let x = g.get_current_place();
+                        temp.extend(self.goto(&c, &x));
+                        if !self.cc.contains(&temp){
+                            self.cc.push(temp);
+                            marked.push(false);
+                            self.transation.insert((i, x),  marked.len() - 1);
+                            changed = true;
+                        }else{
+                            for s in 0..self.cc.len(){
+                                if temp == self.cc[s]{
+                                    match self.transation.insert((i, x), s){
+                                        Some(_) => {},
+                                        None => changed = true
+                                    };
+                                    break;
+                                }
+                            }
+                            
+                        }
+                    }
+                    
+                }
+            }
+        }
+    }
+
+    fn fill_table(&mut self){
+        for ccn in 0..self.cc.len(){
+            for g in &self.cc[ccn]{
+                if g.len > g.p {
+                    let next = match self.transation.get(&(ccn, g.get_current_place())){
+                        Some(v) => v,
+                        None => {panic!("Error When building action table")}
+                    };
+                    let curr = g.get_current_place();
+                    if self.lang.twords.contains(&curr){
+                        self.action.insert((ccn, g.get_current_place()), format!("s{}", next));
+                    }else{
+                        self.goto.insert((ccn, g.get_current_place()), *next);
+                    }
+                }else if g.len == g.p && !(g.gen.0 == self.lang.first_word && g.ahead == "#".to_owned()){
+                    let mut index = 0;
+                    let left = &g.gen.0;
+                    for l in &self.lang.lg{
+                        if l.0 == left{
+                            for r in 0..l.1.len(){
+                                if l.1[r] == g.gen.1{
+                                    index = r;
+                                }
+                            }
+                        }
+                    }
+                    self.action.insert((ccn, g.get_current_place()), format!("r:{}-{}", left, index));//获得规约所使用的产生式
+                }else if g.gen.0 == self.lang.first_word && g.ahead == "#".to_owned(){
+                    self.action.insert((ccn, "#".to_owned()), "acc".to_owned());
+                }
+            }
+            for w in &self.lang.ntwords{
+                match self.transation.get(&(ccn, w.clone())) {
+                    Some(v) =>{
+                        self.goto.insert((ccn, w.clone()), *v);
+                    },
+                    None => {}
+                }
+            }
         }
     }
 
@@ -289,7 +203,7 @@ impl AnalyzeTable {
 
         for c in sentence.chars() {
             temp.push(c);
-            if self.lr.lang.words.contains(&temp) {
+            if self.lang.words.contains(&temp) {
                 sen.push(temp.clone());
                 temp.clear();
             }
@@ -300,120 +214,110 @@ impl AnalyzeTable {
         } //将输入语句拆分为单词
         sen.push("#".to_owned());//完成对输入串的预处理
 
-        let first_index = (self.lr.lang.first_word.clone(), 0);
-        let mut index = 0;
-        for g in 0..self.lr.index.len() {
-            if self.lr.index[g] == first_index {
-                index = g;
-            }
-        }
-        let first_gen = self.lr.gen_list[index].clone().2;
-        let mut start = self.lr.closeure.len();
-        for i in 0..self.lr.closeure.len() {
-            if self.lr.closeure[i].contains(&first_gen) {
-                start = i;
-            }
-        }
-        lazy_static! {
-            static ref REG: Regex = Regex::new(r"('|\w)+-(\d)").unwrap();
-        }
+        word_stack.push("#".to_owned());
+        status_stack.push(0);//双栈的初始化完成
+
+        
+        let reg: Regex = Regex::new(r"('|\w)+-(\d)").unwrap();
+        let shift = Regex::new(r"s(\d)+").unwrap();
         let num: Regex = Regex::new(r"([0-9])+").unwrap();
         let gen_: Regex = Regex::new(r"('|[A-Z])+").unwrap();
-        status_stack.push(start);
-        word_stack.push("#".to_owned());
-        //let mut history = History::new();
-        self.history.log(word_stack.clone(), status_stack.clone(), sen[0..sen.len()].to_vec());
+
         let mut i = 0;
-        loop {
-            let word = sen[i].clone();
-            if self.lr.lang.words.contains(&word) || word == "#".to_owned() {
-                let curr_status = status_stack[status_stack.len() - 1];
-                let next_status = match self.action.get(&(curr_status, word.clone())) {
-                    Some(v) => v.clone().to_string(),
-                    None => match self.reg.get(&(curr_status, word.clone())) {
-                        Some(v) => (*v).clone(),
-                        None => "e".to_owned(),
-                    },
-                };
-                if next_status == "acc".to_owned() {
-                    return "Succeed".to_owned(); //分析成功
+        loop{
+            let curr = status_stack[status_stack.len()-1];
+            self.history.log(word_stack.clone(), status_stack.clone(), sen[i..sen.len()].to_vec());
+            let next = match self.action.get(&(curr, sen[i].clone())) {
+                Some(v) => {
+                    v.clone()
+                },
+                None => {
+                    "Err".to_owned()
                 }
-                if next_status == "e".to_owned() {
-                    return format!("history is:\n{}Error When Processing {}",self.history, word);
-                } else if REG.is_match(next_status.clone().as_str()) {
-                    //情况分支：规约
-                    let reg_stat = num.captures(next_status.as_str()).unwrap();
-                    let reg_start = gen_.captures(next_status.as_str()).unwrap();
-                    let num = reg_stat.get(1);
-                    let num = num.unwrap().as_str().to_owned();
-                    let num = num.parse::<usize>().unwrap();
-                    let genp = reg_start.get(1).unwrap().as_str().to_owned(); //找到对应的生成式
-
-                    let generate = match self.lr.lang.lg.get(&genp) {
-                        Some(v) => (*v).clone()[num].clone(),
-                        None => panic!("Cannot find right generate, please check program"),
-                    }; //获得对应规约生成式
-
-                    let gen_len = generate.len();
-                    for _ in 0..gen_len {
-                        status_stack.pop();
+            };
+            if next == "Err".to_owned(){
+                return format!("Fail to analyze when looking {}", sen[i]);
+            }else{
+                if reg.is_match(next.as_str()){//情况分支，规约
+                    let w = gen_.captures(next.as_str()).unwrap().get(1).unwrap().as_str().to_owned();
+                    let reg_num = num.captures(next.as_str()).unwrap().get(1).unwrap().as_str().to_owned().parse::<usize>().unwrap();
+                    let reg = self.lang.lg.get(&w).unwrap()[reg_num].clone();
+                    for _ in 0..reg.len(){
                         word_stack.pop();
-                    } //将对应数量的符号移出栈
-
+                        status_stack.pop();
+                    }//删除和规约串长度相等数量的字符
+                    word_stack.push(w.clone());
                     let curr_status = status_stack[status_stack.len()-1];
-                    let next_status = match self.goto.get(&(curr_status, genp.clone())) {
+                    let next_status = match self.goto.get(&(curr_status, w.clone())) {
                         Some(v) => v,
                         None => {
                             println!("{}", self.history);
-                            panic!("Error when looking {}", genp)
+                            panic!("Error when looking {}", w)
                         },
                     };
-                    status_stack.push(next_status.clone()); //将规约得到的状态放入栈中
-                    word_stack.push(genp);
+                    status_stack.push(next_status.clone()); 
                     self.history.log(word_stack.clone(), status_stack.clone(), sen[i..sen.len()].to_vec());
-                } else {
-                    //情况分支：移进
+                }else if next == "acc".to_owned(){
+                    break;
+                }else if shift.is_match(next.as_str()){//情况分支：移进
+                    word_stack.push(sen[i].clone());
+                    status_stack.push(num.captures(next.as_str()).unwrap().get(1).unwrap().as_str().to_owned().parse::<usize>().unwrap());
                     i += 1;
-                    status_stack.push(next_status.parse::<usize>().unwrap());
-                    word_stack.push(word.clone());
                     self.history.log(word_stack.clone(), status_stack.clone(), sen[i..sen.len()].to_vec());
+                }else{
+                    panic!("Fatal Error");
                 }
             }
         }
-    }
-    pub fn get_history(&self) -> String{
-        format!("{}", self.history)
+        "Success".to_owned()
     }
 }
 
-impl Display for AnalyzeTable {
+impl Display for LR {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
-        write!(f, "{}\n \t", self.lr)?;
-        for w in &self.lr.lang.twords {
+        write!(f, "{}\n", self.lang)?;
+        write!(f, "{}\n", self.ll)?;
+        for c in 0..self.cc.len(){
+            write!(f, "cc{}\n", c)?;
+            for g in &self.cc[c]{
+                write!(f, "{}\n", g)?;
+            }
+            write!(f, "\n")?;
+        }
+        write!(f, "\n\t")?;
+        for w in &self.lang.twords{
+            if w == &"nil".to_owned(){
+                continue;
+            }
             write!(f, "{}\t", w)?;
         }
         write!(f, "#\t")?;
-        for w in &self.lr.lang.ntwords {
+        for w in &self.lang.ntwords{
             write!(f, "{}\t", w)?;
         }
         write!(f, "\n")?;
-        let mut temp = self.lr.lang.twords.clone();
-        temp.push("#".to_owned());
-        for i in 0..self.lr.closeure.len() {
+        
+        for i in 0..self.cc.len(){
             write!(f, "{}\t", i)?;
-            for w in &temp {
+            for w in &self.lang.twords{
+                if w == &"nil".to_owned(){
+                    continue;
+                }
                 match self.action.get(&(i, w.clone())) {
-                    Some(v) => write!(f, "s{}\t", v),
-                    None => match self.reg.get(&(i, w.clone())) {
-                        Some(v) => write!(f, "r:{}\t", v),
-                        None => write!(f, "e\t"),
-                    },
+                    Some(v) => write!(f, "{}\t", v),
+                    None => write!(f, "e\t")
                 }?;
             }
-            for w in &self.lr.lang.ntwords {
+
+            match self.action.get(&(i, "#".to_owned())) {
+                Some(v) => write!(f, "{}\t", v),
+                None => write!(f, "e\t")
+            }?;
+    
+            for w in &self.lang.ntwords{
                 match self.goto.get(&(i, w.clone())) {
                     Some(v) => write!(f, "{}\t", v),
-                    None => write!(f, "e\t"),
+                    None => write!(f, "e\t")
                 }?;
             }
             write!(f, "\n")?;
@@ -498,192 +402,8 @@ impl Display for Gen {
     }
 }
 
-struct GO {
-    //词表(终结符or非终结符)
-    go: HashMap<(usize, String), usize>, //<(闭包序号, 输入字符), 目标闭包序号>
-}
 
-impl GO {
-    pub fn new(lr: &mut LR) -> Self {
-        let mut go = Self { go: HashMap::new() };
-        let mut used = Vec::new();
-        let mut way: HashMap<usize, Vec<usize>> = HashMap::new();
-        let mut changed = true;
-        while changed {
-            changed = false;
-            for i in 0..lr.closeure.len() {
-                let c = lr.closeure[i].clone();
-                for g in c {
-                    let mut gen = g.clone();
-                    if gen.move_to_next() {
-                        for s in 0..lr.closeure.len() {
-                            if lr.closeure[s].contains(&gen) {
-                                if !used.contains(&i){
-                                    used.push(i);
-                                    changed = true;
-                                }
-                                if !used.contains(&s){
-                                    used.push(s);
-                                    changed = true;
-                                } //找到goto的方向，填入goto表(其中gen.get_current_place()可以获取移动前待识别的字符)
-                                match way.get_mut(&i) {
-                                    Some(v) => {
-                                        if !v.contains(&s){
-                                            v.push(s);
-                                            changed = true;
-                                        }
-                                    },
-                                    None => match way.insert(i, vec![s]) {
-                                        _ => changed = true
-                                    },
-                                }
-                                continue;
-                            }
-                        }
-                    } else {
-                        continue;
-                    }
-                }
-            }
-        }
-        let mut not_have = Vec::new();
-        for i in 0..lr.closeure.len() {
-            if !used.contains(&i) {
-                not_have.push(i);
-            }
-        }//将未使用的闭包编号放入
-
-        let first = lr.lang.first_word.clone();
-        let mut index = lr.index.len() + 1;
-        for i in 0..lr.index.len() {
-            if lr.index[i] == (first.clone(), 0) {
-                index = i;
-            }
-        }
-        let first_gen = lr.gen_list[index].clone();
-        for c in 0..lr.closeure.len() {
-            if lr.closeure[c].contains(&first_gen.2) {
-                index = c;
-                break;
-            }
-        }//获得起始闭包的编号
-
-        let mut fact = vec![index];
-        let mut changed = true;
-        while changed {
-            changed = false;
-            for i in fact.clone() {
-                let next = match way.get(&i) {
-                    Some(v) => v,
-                    None => continue,
-                };
-                for n in next {
-                    if !fact.contains(n) {
-                        fact.push(*n);
-                        changed = true;
-                    }
-                }
-            }
-        }
-        for i in 0..lr.closeure.len() {
-            if !fact.contains(&i) {
-                if !not_have.contains(&i){
-                    not_have.push(i);//将不可及的闭包放入待删除列表
-                }
-            }
-        }
-        not_have.sort();
-        not_have.reverse();
-        for i in not_have {
-            lr.closeure.remove(i);
-        }//删除所有不可及和未使用的闭包
-
-
-        let mut should_be_append: Vec<(usize, usize)> = Vec::new();
-        let mut changed = true;
-        while changed {
-            changed = false;
-            for i in 0..lr.closeure.len() {
-                let c = lr.closeure[i].clone();
-                for g in c {
-                    let mut gen = g.clone();
-                    let word = gen.get_current_place();
-                    if gen.move_to_next() {
-                        for s in 0..lr.closeure.len() {
-                            if lr.closeure[s].contains(&gen) {
-                                match go.go.insert((i, word.clone()), s) {
-                                    Some(v) => {
-                                        if (!should_be_append.contains(&(s, v))
-                                            && !should_be_append.contains(&(v, s)))
-                                            && s != v
-                                        {
-                                            if v > s {
-                                                should_be_append.push((s, v));
-                                            } else {
-                                                should_be_append.push((v, s));
-                                            }
-
-                                            changed = true
-                                        }
-                                    } //当出现一个闭包使用相同的输入可以推出多个闭包的时候，标记合并闭包
-                                    None => {}
-                                }; //找到goto的方向，填入goto表(其中gen.get_current_place()可以获取移动前待识别的字符)
-                                continue;
-                            }
-                        }
-                    } else {
-                        continue;
-                    }
-                }
-            }
-            go.go.clear();
-            let mut remove = Vec::new();
-            for a in should_be_append.clone() {
-                for c in lr.closeure[a.1].clone() {
-                    if !lr.closeure[a.0].contains(&c) {
-                        lr.closeure[a.0].push(c);
-                    }
-                }
-                remove.push(a.1);
-            }
-            remove.sort();
-            remove.reverse();
-            for i in remove {
-                lr.closeure.remove(i);
-            }
-            should_be_append.clear();
-        }
-
-        for i in 0..lr.closeure.len() {
-            let c = lr.closeure[i].clone();
-            for g in c {
-                let mut gen = g.clone();
-                let word = gen.get_current_place();
-                if gen.move_to_next() {
-                    for s in 0..lr.closeure.len() {
-                        if lr.closeure[s].contains(&gen) {
-                            go.go.insert((i, word.clone()), s); //找到goto的方向，填入goto表(其中gen.get_current_place()可以获取移动前待识别的字符)
-                            continue;
-                        }
-                    }
-                } else {
-                    continue;
-                }
-            }
-        }
-        go
-    }
-}
-
-impl Display for GO {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::result::Result<(), std::fmt::Error> {
-        for entity in self.go.clone() {
-            write!(f, "c{} --{}-> c{}\n", (entity.0).0, (entity.0).1, entity.1)?;
-        }
-        write!(f, "")
-    }
-}
-
+#[derive(Clone, Debug)]
 struct History {
     len: usize,
     step: Vec<String>,

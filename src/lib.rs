@@ -13,7 +13,7 @@ use std::ffi::{CStr, CString};
 use language::Language;
 use ff::FF;
 use std::boxed::Box;
-use lr::AnalyzeTable;
+use lr::LR;
 
 #[no_mangle]
 extern fn test() {
@@ -107,31 +107,31 @@ extern fn free_str(s:*mut c_char){
 /// get_history_lr() => 获取lr分析过程的历史
 
 #[no_mangle]
-extern fn load_setting_lr(conf_path: *const c_char, t_path: *const c_char, nt_path: *const c_char) -> *mut AnalyzeTable{//创建语言解析器
+extern fn load_setting_lr(conf_path: *const c_char, t_path: *const c_char, nt_path: *const c_char) -> *mut LR{//创建语言解析器
     let conf = convert_c_char(conf_path);
     let t = convert_c_char(t_path);
     let nt = convert_c_char(nt_path);
 
     let mut lg = Language::start();
     lg.new(conf.as_str(), t.as_str(), nt.as_str(), true);
-    let ff = AnalyzeTable::new(&lg);
+    let ff = LR::new(&lg);
     Box::into_raw(Box::new(ff))
 }//创建FF1解释器
 
 #[no_mangle]
-extern fn load_from_string_lr(conf: *const c_char, t: *const c_char, nt: *const c_char) -> *mut AnalyzeTable{
+extern fn load_from_string_lr(conf: *const c_char, t: *const c_char, nt: *const c_char) -> *mut LR{
     let conf = convert_c_char(conf);
     let t = convert_c_char(t);
     let nt = convert_c_char(nt);
 
     let mut lg = Language::start();
     lg.new_from_string(conf, nt, t, true);
-    let lr = AnalyzeTable::new(&lg);
+    let lr = LR::new(&lg);
     Box::into_raw(Box::new(lr))
 }
 
 #[no_mangle]
-extern fn analyze_lr(ptr: *mut AnalyzeTable, s:*const c_char) -> *mut c_char{
+extern fn analyze_lr(ptr: *mut LR, s:*const c_char) -> *mut c_char{
     let ff = unsafe{
         assert!(!ptr.is_null());
         &mut *ptr
@@ -143,7 +143,7 @@ extern fn analyze_lr(ptr: *mut AnalyzeTable, s:*const c_char) -> *mut c_char{
 }//使用创建的LR对现有的语句进行分析，并返回分析结果(String)
 
 #[no_mangle]
-extern fn get_history_lr(ptr: *const AnalyzeTable) -> *mut c_char{
+extern fn get_history_lr(ptr: *const LR) -> *mut c_char{
     let ff = unsafe{
         assert!(!ptr.is_null());
         &*ptr
@@ -154,7 +154,7 @@ extern fn get_history_lr(ptr: *const AnalyzeTable) -> *mut c_char{
 }//返回分析历史
 
 #[no_mangle]
-extern fn free_setting_lr(ptr:*mut AnalyzeTable){
+extern fn free_setting_lr(ptr:*mut LR){
     if ptr.is_null(){
         return;
     }
@@ -222,7 +222,7 @@ fn lr(){
     let nt_path = "NT.txt";
     let mut lang = Language::start();
     lang.new(conf_path, t_path, nt_path, true);
-    let lr = AnalyzeTable::new(&lang);
+    let lr = lr::LR::new(&lang);
     println!("{}", lr);
 }
 
@@ -232,12 +232,9 @@ fn test_left_re(){
     let t_path = "T.txt";
     let nt_path = "NT.txt";
     let mut lang = Language::start();
-    lang.new(conf_path, t_path, nt_path, false);
-    print!("{}", lang);
-    let mut ll = FF::new(&lang);
-    println!("{}\n{}",ll.analyze("i*i#".to_owned()), ll.get_history());
-    let mut lr = AnalyzeTable::new(&lang);
+    lang.new(conf_path, t_path, nt_path, true);
+    let mut lr = lr::LR::new(&lang);
     println!("\n{}", lr);
-    println!("{}", lr.analyze("i*i".to_owned()));
-    let a = 0;
+    println!("{}", lr.analyze("()".to_owned()));
+    println!("{}", lr.get_history());
 }
